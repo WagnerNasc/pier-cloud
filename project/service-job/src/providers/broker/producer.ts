@@ -45,7 +45,11 @@ export class KafkaSender {
     try {
       await this.connect();
       
+<<<<<<< HEAD
       await this.producer.send({
+=======
+      const result = await this.producer.send({
+>>>>>>> de654ff6c73672cae5d2583f5c4c73b310f58448
         topic,
         messages: [
           {
@@ -60,12 +64,55 @@ export class KafkaSender {
         ]
       });
 
+<<<<<<< HEAD
+=======
+      console.log(`✅ Mensagem enviada para o tópico '${topic}':`, {
+        partition: result[0].partition,
+        offset: result[0].baseOffset,
+        timestamp: result[0].timestamp
+      });
+
+>>>>>>> de654ff6c73672cae5d2583f5c4c73b310f58448
     } catch (error) {
       console.error(`❌ Erro ao enviar mensagem para o tópico '${topic}':`, error);
       throw error;
     }
   }
 
+<<<<<<< HEAD
+=======
+  async sendBatch(topic: string, messages: SellerResponse[]): Promise<void> {
+    try {
+      await this.connect();
+      
+      const kafkaMessages = messages.map(message => ({
+        key: message.id?.toString() || '',
+        value: JSON.stringify(message),
+        timestamp: Date.now().toString(),
+        headers: {
+          'content-type': 'application/json',
+          'source': 'pier-service-job'
+        }
+      }));
+
+      const results = await this.producer.send({
+        topic,
+        messages: kafkaMessages
+      });
+
+      console.log(`✅ Lote de ${messages.length} mensagens enviado para o tópico '${topic}':`, {
+        totalMessages: messages.length,
+        partitions: results.map((result: { partition: any; }) => result.partition),
+        offsets: results.map((result: { baseOffset: any; }) => result.baseOffset)
+      });
+
+    } catch (error) {
+      console.error(`❌ Erro ao enviar lote de mensagens para o tópico '${topic}':`, error);
+      throw error;
+    }
+  }
+
+>>>>>>> de654ff6c73672cae5d2583f5c4c73b310f58448
   async getStatus(): Promise<{ connected: boolean; producerId: string }> {
     return {
       connected: this.isConnected,

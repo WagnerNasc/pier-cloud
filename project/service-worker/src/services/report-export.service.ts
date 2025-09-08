@@ -41,8 +41,6 @@ class ReportExportService {
   constructor(private readonly kafkaConsumer: KafkaConsumer) {}
 
   async exportReport(): Promise<Map<string, ConsolidatedSalesBySellerToCSV[]> | { message: string }> {
-    const startTime = Date.now();
-    
     try {
       const now = new Date(Date.now());
       now.setHours(now.getHours() - 3);

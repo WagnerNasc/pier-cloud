@@ -12,6 +12,15 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+<<<<<<< HEAD
+=======
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+>>>>>>> de654ff6c73672cae5d2583f5c4c73b310f58448
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
