@@ -3,11 +3,13 @@ import { KafkaSender } from "@/providers/broker/producer";
 
 class SendSellerService {
   private BATCH_SIZE = 10;
+  
   constructor(private readonly kafkaSender: KafkaSender) {}
 
   async execute() {
     const startTime = Date.now();
     let successCount = 0;
+    let errorCount = 0;
 
     try {
       const sellers = await new SellersProvider().get();
@@ -35,6 +37,7 @@ class SendSellerService {
             successCount++;
           } catch (individualError) {
             console.error(`❌ Erro ao enviar vendedor individual ${seller.id}:`, individualError);
+            errorCount++;
           }
         } 
       }
@@ -45,6 +48,7 @@ class SendSellerService {
         message: 'Exportação concluída',
         totalProcessed: sellers.length,
         successCount,
+        errorCount,
         duration
       };
 
@@ -53,6 +57,7 @@ class SendSellerService {
         message: 'Erro na exportação de vendedores',
         totalProcessed: successCount,
         successCount,
+        errorCount,
         duration: Date.now() - startTime,
         error: error instanceof Error ? error.message : 'Erro desconhecido'
       };

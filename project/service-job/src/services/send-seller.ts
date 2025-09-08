@@ -37,14 +37,12 @@ class SendSellerService {
       }
 
       const duration = Date.now() - startTime;
-      const status = await this.kafkaSender.getStatus();
 
       console.log('✅ Exportação concluída:', {
         totalProcessed: sellers.length,
         successCount,
         errorCount,
-        duration: `${duration}ms`,
-        kafkaStatus: status
+        duration: `${duration}ms`
       });
 
       return {
