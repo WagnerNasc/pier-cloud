@@ -74,13 +74,13 @@ docker-compose ps
 
 ### 2. Configurando variáveis de ambiente
 
-Crie arquivos `.env` em cada serviço (substitua o valor de EXTERNAL_API_URL pelo ):
+Crie arquivos `.env` em cada serviço:
 
 **service-job/.env:**
 ```env
 NODE_ENV=dev
 PORT=3000
-EXTERNAL_API_URL=pier-cloud-api
+EXTERNAL_API_URL=https://66ec84422b6cf2b89c5eabf1.mockapi.io/piercloud/api/v1
 KAFKA_BROKER=localhost:9092
 ```
 
@@ -88,7 +88,7 @@ KAFKA_BROKER=localhost:9092
 ```env
 NODE_ENV=dev
 PORT=3001
-EXTERNAL_API_URL=pier-cloud-api
+EXTERNAL_API_URL=https://66ec84422b6cf2b89c5eabf1.mockapi.io/piercloud/api/v1
 KAFKA_BROKER=localhost:9092
 ```
 
