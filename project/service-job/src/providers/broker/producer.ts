@@ -45,7 +45,7 @@ export class KafkaSender {
     try {
       await this.connect();
       
-      const result = await this.producer.send({
+      await this.producer.send({
         topic,
         messages: [
           {
@@ -58,12 +58,6 @@ export class KafkaSender {
             }
           }
         ]
-      });
-
-      console.log(`✅ Mensagem enviada para o tópico '${topic}':`, {
-        partition: result[0].partition,
-        offset: result[0].baseOffset,
-        timestamp: result[0].timestamp
       });
 
     } catch (error) {

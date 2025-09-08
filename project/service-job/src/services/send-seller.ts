@@ -25,29 +25,14 @@ class SendSellerService {
 
       await this.kafkaSender.connect();
 
-      const BATCH_SIZE = 10;
-      const batches = this.chunkArray(sellers, BATCH_SIZE);
-
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        console.log(`Processando lote ${i + 1}/${batches.length} (${batch.length} vendedores)`);
-
+      for (let i = 0; i < sellers.length; i++) {
+        const seller = sellers[i];
         try {
-          await this.kafkaSender.sendBatch('seller', batch);
-          successCount += batch.length;
-        } catch (error) {
-          console.error(`❌ Erro no lote ${i + 1}:`, error);
-          errorCount += batch.length;
-          
-          for (const seller of batch) {
-            try {
-              await this.kafkaSender.sendMessage('SELLER_MESSAGE', seller);
-              successCount++;
-              errorCount--;
-            } catch (individualError) {
-              console.error(`❌ Erro ao enviar vendedor individual ${seller.id}:`, individualError);
-            }
-          }
+          await this.kafkaSender.sendMessage('SELLER_MESSAGE', seller);
+          successCount++;
+        } catch (individualError) {
+          console.error(`❌ Erro ao enviar vendedor ${seller.id}:`, individualError);
+          errorCount++;
         }
       }
 
@@ -87,14 +72,6 @@ class SendSellerService {
         console.error('❌ Erro ao desconectar do Kafka:', disconnectError);
       }
     }
-  }
-
-  private chunkArray<T>(array: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-      chunks.push(array.slice(i, i + size));
-    }
-    return chunks;
   }
 }
 

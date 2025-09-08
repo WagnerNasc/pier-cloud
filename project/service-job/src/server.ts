@@ -17,10 +17,10 @@ const runSendSellerJob = async () => {
     const kafkaSender = new KafkaSender();
     const sendSellerService = new SendSellerService(kafkaSender);
     
-    const result = await sendSellerService.execute();
-    console.log('Retorno da job:', result);
+    await sendSellerService.execute();
   } catch (error) {
-    console.error('Erro no job de exportação:', error);
+    console.error('Erro no serviço de envio de vendedores:', error);
+    throw error;
   }
 };
 
