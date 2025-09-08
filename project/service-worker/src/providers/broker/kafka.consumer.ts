@@ -1,13 +1,15 @@
+import { Consumer } from "kafkajs";
 import { kafka } from "./kafka";
+import { ReportExportService } from "@/services/report-export.service";
 
-type SellerConsumer = {
+export type SellerConsumer = {
   id: string;
   nome: string;
   telefone: string;
 }
 
 export class KafkaConsumer {
-  private consumer: any;
+  private consumer: Consumer;
   private isConnected = false;
 
   constructor() {
@@ -44,29 +46,23 @@ export class KafkaConsumer {
     }
   }
 
-  async consume(topic: string): Promise<any> {
+  async consume(topic: string ): Promise<void> {
     try {
       await this.connect();
-      
-      console.log(`🔗 Fazendo subscribe no tópico: ${topic}`);
+
       await this.consumer.subscribe({ topic, fromBeginning: false });
-      
-      console.log(`🎯 Começando a consumir tópico: ${topic}`);
       
       await this.consumer.run({
         partitionsConsumedConcurrently: 1,
-        eachMessage: async ({ topic, partition, message }) => {
+        eachMessage: async ({ topic, message }) => {
           try {
             const messageValue = message.value!.toString();
-            const messageParsed = JSON.parse(messageValue) as SellerConsumer;      
-            
-            console.log(`✅ Mensagem recebida:`, {
-              topic,
-              partition,
-              offset: message.offset,
-              key: message.key?.toString(),
-              value: messageParsed
-            });
+            const messageParsed = JSON.parse(messageValue) as SellerConsumer;
+
+            if (topic === 'SELLER_MESSAGE') {
+              const reportExport = new ReportExportService();
+              await reportExport.exportReport(messageParsed);
+            }
             
           } catch (error) {
             console.error(`❌ Erro ao processar mensagem do tópico '${topic}':`, error);

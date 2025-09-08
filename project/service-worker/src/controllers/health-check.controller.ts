@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { KafkaConsumer } from "@/providers/broker/consumer";
+import { KafkaConsumer } from "@/providers/broker/kafka.consumer";
 
 export class HealthCheckController {
   private kafkaConsumer: KafkaConsumer;

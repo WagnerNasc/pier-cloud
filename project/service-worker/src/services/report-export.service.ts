@@ -3,19 +3,16 @@ import { join } from 'path';
 import { delay } from '@/util/delay.util';
 import { createObjectCsvWriter } from 'csv-writer';
 import { SalesProvider } from "@/providers/api/pier-cloud/sales";
-import { SellersProvider } from "@/providers/api/pier-cloud/sellers";
 import { ProductsProvider } from "@/providers/api/pier-cloud/products";
 import { CustomersProvider } from "@/providers/api/pier-cloud/customers";
 import { SaleResponse } from "@/providers/api/pier-cloud/types/responses/sale.type";
-import { SellerResponse } from "@/providers/api/pier-cloud/types/responses/seller.type";
 import { ProductResponse } from "@/providers/api/pier-cloud/types/responses/product.type";
 import { CustomerResponse } from "@/providers/api/pier-cloud/types/responses/customer.type";
-import { KafkaConsumer } from '@/providers/broker/consumer';
+import { SellerConsumer } from '@/providers/broker/kafka.consumer';
 
 interface SaleAggregate extends SaleResponse {
   customer?: CustomerResponse;
   product?: ProductResponse;
-  seller?: SellerResponse;
 }
 
 interface ConsolidatedSalesBySellerToCSV {
@@ -32,86 +29,84 @@ interface ConsolidatedSalesBySellerToCSV {
   sku: string;
 }
 
-type DataType = 'customers' | 'products' | 'sellers';
+type DataType = 'customers' | 'products';
 
 class ReportExportService {
   private readonly DELAY_MS = 2000;
   private readonly BATCH_SIZE = 4;
 
-  constructor(private readonly kafkaConsumer: KafkaConsumer) {}
-
-  async exportReport(): Promise<Map<string, ConsolidatedSalesBySellerToCSV[]> | { message: string }> {
+  async exportReport(seller: SellerConsumer): Promise<{ message: string; filePath?: string }> {
     try {
       const now = new Date(Date.now());
       now.setHours(now.getHours() - 3);
-      console.log('Iniciando exportação de relatório', now.toISOString());
-
-      const seller = await this.kafkaConsumer.consume('SELLER_MESSAGE');
+      console.log(`✅ Exportando relatório para vendedor ${seller.nome} (ID: ${seller.id})`, now.toISOString());
 
       if (!seller) {
         return { message: 'Nenhum seller encontrado' };
       }
       
-      const sales = await new SalesProvider().get();
+      const allSales = await new SalesProvider().get();
       
-      if (!sales || sales.length === 0) {
+      if (!allSales || allSales.length === 0) {
         return { message: 'Nenhuma venda encontrada' };
       }
 
-      console.log(`Quantidade de vendas encontradas: ${sales.length}`);
+      const sellerSales = allSales.filter(sale => sale.vendedor_id === seller.id);
       
-      const salesWithData = await this.fetchRelatedData(sales);
-
-      const salesBySeller = this.consolidateDataBySeller(salesWithData);
-      
-      console.log(`Gerando CSVs para ${salesBySeller.size} vendedores`);
-      
-      const generatedFiles: string[] = [];
-
-      for (const [sellerId, sellerSales] of salesBySeller) {
-        const sellerName = sellerSales[0]?.seller_name || 'vendedor_desconhecido';
-        
-        const filePath = await this.generateCSVForSeller(sellerId, sellerName, sellerSales);
-        generatedFiles.push(filePath);
-    
-        
-        console.log(`CSV gerado para ${sellerName}: ${sellerSales.length}`);
+      if (sellerSales.length === 0) {
+        return { message: `Nenhuma venda encontrada para o vendedor ${seller.nome}` };
       }
+      
+      const salesWithData = await this.fetchRelatedData(sellerSales);
+      const consolidatedSales = this.consolidateDataForSeller(salesWithData, seller);
+      const filePath = await this.generateCSVForSeller(seller.id, seller.nome, consolidatedSales);
 
       return {
-        message: `Exportação concluída! ${generatedFiles.length} arquivos CSV gerados.`,
+        message: `Exportação concluída para ${seller.nome}! Arquivo CSV gerado.`,
+        filePath
       };
 
-    } catch (error: any) {
-      console.error('Erro na exportação:', error.message);
-      throw new Error(`Falha na exportação: ${error.message}`);
+    } catch (error) {
+      throw new Error(`Falha na exportação do relatório para ${seller.nome}: ${error.message}`);
     }
   }
 
   private async fetchRelatedData(sales: SaleAggregate[]): Promise<SaleAggregate[]> {
-    
+    if (!sales || sales.length === 0) {
+      console.log('Nenhuma venda para buscar dados relacionados');
+      return [];
+    }
+
     const uniqueCustomerIds = [...new Set(sales.map(sale => sale.cliente_id))];
     const uniqueProductIds = [...new Set(sales.map(sale => sale.produto_id))];
-    const uniqueSellerIds = [...new Set(sales.map(sale => sale.vendedor_id))];
 
-    const [customers, products, sellers] = await Promise.all([
-      this.fetchDataInBatches('customers', uniqueCustomerIds),
-      this.fetchDataInBatches('products', uniqueProductIds),
-      this.fetchDataInBatches('sellers', uniqueSellerIds)
-    ]);
+    try {
+      const [customers, products] = await Promise.all([
+        this.fetchDataInBatches('customers', uniqueCustomerIds),
+        this.fetchDataInBatches('products', uniqueProductIds),
+      ]);
 
-    return sales.map(sale => ({
-      ...sale,
-      customer: customers.find(customer => customer.id === sale.cliente_id),
-      product: products.find(product => product.id === sale.produto_id),
-      seller: sellers.find(seller => seller.id === sale.vendedor_id)
-    }));
+      return sales.map(sale => ({
+        ...sale,
+        customer: customers.find(customer => customer.id === sale.cliente_id),
+        product: products.find(product => product.id === sale.produto_id),
+      }));
+
+    } catch (error) {
+      console.error('Erro ao buscar dados relacionados:', error.message);
+      throw new Error(`Falha ao buscar dados relacionados: ${error.message}`);
+    }
   }
 
   private async fetchDataInBatches(
     dataType: DataType, 
     ids: string[]
   ): Promise<any[]> {
+    if (!ids || ids.length === 0) {
+      console.log(`Nenhum ID fornecido para ${dataType}`);
+      return [];
+    }
+
     const results: any[] = [];
     
     const getProviderInstance = () => {
@@ -120,58 +115,52 @@ class ReportExportService {
           return new CustomersProvider();
         case 'products':
           return new ProductsProvider();
-        case 'sellers':
-          return new SellersProvider();
         default:
           throw new Error(`Tipo de dados incorreto: ${dataType}`);
       }
     };
     
+    const totalBatches = Math.ceil(ids.length / this.BATCH_SIZE);
+    
     for (let i = 0; i < ids.length; i += this.BATCH_SIZE) {
       const batch = ids.slice(i, i + this.BATCH_SIZE);
+      const currentBatch = Math.floor(i / this.BATCH_SIZE) + 1;
 
-      const batchPromises = batch.map(async id => {
-        const provider = getProviderInstance();
-        return await provider.getById(id);
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-      await delay(this.DELAY_MS);
-      console.log(`Processado lote ${Math.floor(i / this.BATCH_SIZE) + 1}/${Math.ceil(ids.length / this.BATCH_SIZE)} para ${dataType}`);
+      try {
+        const batchPromises = batch.map(async id => {
+          const provider = getProviderInstance();
+          return await provider.getById(id);
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        const validResults = batchResults.filter(result => result != null);
+        results.push(...validResults);
+        
+        if (currentBatch < totalBatches) {
+          await delay(this.DELAY_MS);
+        }
+      } catch (error) {
+        console.error(`Erro no lote ${currentBatch} de ${dataType}:`, error.message);
+      }
     }
-    
+
     return results;
   }
 
-  private consolidateDataBySeller(sales: SaleAggregate[]) {
-    const salesBySeller = new Map<string, ConsolidatedSalesBySellerToCSV[]>();
-
-    sales.forEach(sale => {
-      if (!sale.seller) return;
-
-      const consolidatedSale: ConsolidatedSalesBySellerToCSV = {
-        seller_id: sale.seller?.id,
-        seller_name: sale.seller.nome,
-        seller_phone: sale.seller.telefone,
-        customer_id: sale.customer?.id,
-        customer_name: sale.customer?.nome || 'N/A',
-        customer_phone: sale.customer?.telefone || 'N/A',
-        customer_email: sale.customer?.email || 'N/A',
-        product_id: sale.product?.id,
-        product_name: sale.product?.nome || 'N/A',
-        price: sale.product?.preco,
-        sku: sale.product?.sku
-      };
-
-      const sellerId = sale.seller?.id;
-      if (!salesBySeller.has(sellerId)) {
-        salesBySeller.set(sellerId, []);
-      }
-      salesBySeller.get(sellerId)!.push(consolidatedSale);
-    });
-
-    return salesBySeller;
+  private consolidateDataForSeller(sales: SaleAggregate[], seller: SellerConsumer): ConsolidatedSalesBySellerToCSV[] {
+    return sales.map(sale => ({
+      seller_id: seller.id,
+      seller_name: seller.nome,
+      seller_phone: seller.telefone,
+      customer_id: sale.customer?.id || 'N/A',
+      customer_name: sale.customer?.nome || 'N/A',
+      customer_phone: sale.customer?.telefone || 'N/A',
+      customer_email: sale.customer?.email || 'N/A',
+      product_id: sale.product?.id || 'N/A',
+      product_name: sale.product?.nome || 'N/A',
+      price: sale.product?.preco || 0,
+      sku: sale.product?.sku || 'N/A'
+    }));
   }
 
   private async generateCSVForSeller(
@@ -184,15 +173,18 @@ class ReportExportService {
     try {
       mkdirSync(outputDir, { recursive: true });
     } catch (error) {
-      console.error('Erro na criação do diretório:', error.message);
       throw new Error(`Erro na criação do diretório: ${error.message}`);
     }
 
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
     const sellerNameInSnakeCase = sellerName
       .toLowerCase()
-      .replace(/[^a-zA-Z0-9]/g, '_');
+      .replace(/[^a-zA-Z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
       
-    const fileName = `vendas_${sellerNameInSnakeCase}_${sellerId}.csv`;
+    const fileName = `vendas_${sellerNameInSnakeCase}_${sellerId}_${timestamp}.csv`;
     const filePath = join(outputDir, fileName);
 
     const csvWriter = createObjectCsvWriter({
@@ -212,24 +204,12 @@ class ReportExportService {
       ]
     });
 
-    await csvWriter.writeRecords(sales);
-    return filePath;
-  }
-
-  // TODO: remove this method and create tests
-  private async validationDataExport() {
-    const salesProvider = new SalesProvider();
-    const sales = await salesProvider.get();
-
-    if (!sales || sales.length === 0) {
-      return { message: 'Nenhuma venda encontrada' };
+    try {
+      await csvWriter.writeRecords(sales);
+      return filePath;
+    } catch (error) {
+      throw new Error(`Erro ao escrever arquivo CSV: ${error.message}`);
     }
-  
-    const salesBySeller = sales.reduce<Record<string, number>>((acc, sale) => {
-      acc[sale.vendedor_id] = (acc[sale.vendedor_id] || 0) + 1;
-      return acc;
-    }, {});
-    return salesBySeller;
   }
 }
 

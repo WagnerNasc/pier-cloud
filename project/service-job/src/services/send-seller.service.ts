@@ -45,7 +45,7 @@ class SendSellerService {
       const duration = Date.now() - startTime;
 
       return {
-        message: 'Exportação concluída',
+        message: 'Vendedores enviados',
         totalProcessed: sellers.length,
         successCount,
         errorCount,
@@ -54,7 +54,7 @@ class SendSellerService {
 
     } catch (error) {
       return { 
-        message: 'Erro na exportação de vendedores',
+        message: 'Erro ao enviar vendedores',
         totalProcessed: successCount,
         successCount,
         errorCount,

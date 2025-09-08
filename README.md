@@ -17,48 +17,43 @@ Sistema distribuído composto por dois microserviços que processam dados de ven
 ### Arquitetura dos Serviços
 
 ```
-┌─────────────────┐    Kafka Queue      ┌─────────────────┐
-│   Service-Job   │ ──────────────────→ │ Service-Worker  │
-│                 │  SELLER_MESSAGE     │                 │
-│ • Busca dados   │                     │ • Consome msgs  │
-│ • Envia para    │                     │ • Gera CSVs     │
-│   Kafka         │                     │ • Processa      │
-│                 │                     │   relatórios    │
-└─────────────────┘                     └─────────────────┘
-        │                                        │
-        ▼                                        ▼
-┌─────────────────┐                     ┌─────────────────┐
-│  Pier Cloud API │                     │   CSV Reports   │
-│ • Vendedores    │                     │ • Vendas por    │
-└─────────────────┘                     │   vendedor      │
-                                        │ • Dados         │
-                                        │   consolidados  │
-                                        └─────────────────┘
-```
+                   ┌─────────────────────────────────┐
+                   │         Pier Cloud API          │
+                   │  ┌─────────────────────────────┐│
+                   │  │     Endpoints Disponíveis   ││
+                   │  │ • GET /vendedores           ││
+                   │  │ • GET /vendas               ││
+                   │  │ • GET /clientes             ││
+                   │  │ • GET /produtos             ││
+                   │  └─────────────────────────────┘│
+                   └─────────────────┬───────────────┘
+                                     │
+                    ┌────────────────┴────────────────┐
+                    │                                 │
+                    ▼                                 ▼
+      ┌─────────────────────────┐         ┌─────────────────────────┐
+      │      Service-Job        │  Kafka  │     Service-Worker      │
+      │      (Producer)         │ ──────→ │      (Consumer)         │
+      │                         │ Message │                         │
+      │ Consome da Pier Cloud:  │         │ Consome da Pier Cloud:  │
+      │  GET /vendedores        │         │  GET /vendas            │
+      │                         │         │  GET /clientes          │
+      │ Funcionalidades:        │         │  GET /produtos          │
+      │ • Busca vendedores      │         │                         │
+      │ • Processa em lotes     │         │ Funcionalidades:        │
+      │ • Envia para Kafka      │         │ • Consome mensagens     │
+      │   (SELLER_MESSAGE)      │         │ • Busca dados de vendas │
+      │                         │         │ • Gera relatórios CSV   │
+      └─────────────────────────┘         └─────────────────────────┘
+                                                      │
+                                                      ▼
+                                          ┌─────────────────────────┐
+                                          │      CSV Reports        │
+                                          │ • vendas_{seller}.csv   │
+                                          │ • Dados consolidados    │
+                                          │ • Um arquivo por seller │
+                                          └─────────────────────────┘
 
-## 📁 Estrutura do Projeto
-
-```
-pier-test/
-├── docker-compose.yml          # Kafka + Zookeeper
-├── project/
-│   ├── service-job/           # Producer - Envia dados para Kafka
-│   │   ├── src/
-│   │   │   ├── providers/
-│   │   │   │   ├── api/       # Integrações com API externa
-│   │   │   │   └── broker/    # Kafka Producer
-│   │   │   ├── services/      # Lógica de negócio
-│   │   │   └── server.ts      # Servidor principal
-│   │   └── package.json
-│   └── service-worker/        # Consumer - Processa dados do Kafka
-│       ├── src/
-│       │   ├── providers/
-│       │   │   ├── api/       # Integrações com API externa
-│       │   │   └── broker/    # Kafka Consumer
-│       │   ├── services/      # Geração de relatórios
-│       │   ├── routes/        # Endpoints HTTP
-│       │   └── server.ts      # Servidor principal
-│       └── package.json
 ```
 
 ## 🚦 Rodando o Projeto
@@ -81,7 +76,7 @@ docker-compose ps
 
 ### 2. Configurando variáveis de ambiente
 
-Crie arquivos `.env` em cada serviço:
+Crie arquivos `.env` em cada serviço (substitua o valor de EXTERNAL_API_URL pelo ):
 
 **service-job/.env:**
 ```env
@@ -125,16 +120,26 @@ npm run dev
 
 ## 🔧 Funcionalidades
 
-### Service-Job (Producer)
-- 📊 Coleta dados de vendedores da API externa
-- 🚀 Envia mensagens em lote para o Kafka
-- 📈 Processa dados em batches de 10 registros
-- ⚡ Retry automático em caso de falhas
+### Service-Job (Producer) 🔄
+**Responsável por distribuir o trabalho de geração de relatórios**
 
-### Service-Worker (Consumer)
-- 📨 Consome mensagens do tópico `SELLER_MESSAGE`
-- 📋 Gera relatórios consolidados em CSV
-- 🔄 Processa vendas, produtos, clientes e vendedores
+- **🎯 API Pier Cloud**: Consome apenas `GET /vendedores`
+- **📊 Processamento**: Coleta todos os vendedores e processa em lotes de 10
+- **🚀 Kafka**: Envia cada vendedor individualmente para `SELLER_MESSAGE`
+- **⚡ Resilência**: Retry automático em caso de falhas
+- **📈 Performance**: Processamento em batches para otimizar envio
+
+### Service-Worker (Consumer) 📊  
+**Responsável por gerar relatórios completos de vendas por vendedor**
+
+- **🎯 API Pier Cloud**: Consome múltiplas rotas:
+  - `GET /vendas` - Todas as vendas (filtra por vendedor)
+  - `GET /clientes/{id}` - Dados específicos de clientes
+  - `GET /produtos/{id}` - Dados específicos de produtos
+- **📨 Kafka**: Consome mensagens do tópico `SELLER_MESSAGE`
+- **📋 Relatórios**: Gera CSV consolidado por vendedor
+- **🔄 Consolidação**: Cruza dados de vendas, clientes e produtos
+- **💾 Output**: Arquivos CSV salvos em `/reports`
 
 ## 🐳 Docker
 
@@ -144,8 +149,6 @@ O projeto inclui configuração completa do Kafka:
 # docker-compose.yml inclui:
 - Zookeeper (porta 2181)
 - Kafka (porta 9092)
-- Healthchecks automáticos
-- Auto-criação de tópicos
 ```
 
 ## 🚀 Requisitos para Deploy
@@ -153,6 +156,6 @@ O projeto inclui configuração completa do Kafka:
 - Docker e Docker Compose
 - Node.js v20.18.0+
 
-## 🧗️ Responsáveis
+## 🧗️ Autores
 
 - [Wagner Nascimento](https://github.com/WagnerNasc)
